@@ -15,7 +15,7 @@ SCRIPT_NAME=$(basename "$0")
 readonly SCRIPT_NAME
 
 # Location for user profiles
-PROFILE_FILE="${HOME}/.playvideo_profiles"
+PROFILE_FILE="${PLAYVIDEO_PROFILE_FILE:-${HOME}/.playvideo_profiles}"
 
 # Globals for options
 INPUT_FILE="-"

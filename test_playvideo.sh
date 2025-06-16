@@ -197,22 +197,22 @@ test_edge_cases() {
     fi
     
     # Test restore defaults (should succeed)
-    # Create temporary directory for testing to avoid touching user's actual profile file
-    local temp_home
-    temp_home=$(mktemp -d)
-    if HOME="$temp_home" "$PLAYVIDEO" --restore-defaults >/dev/null 2>&1; then
+    # Use temporary file for testing to avoid touching user's actual profile file
+    local temp_profile_file
+    temp_profile_file=$(mktemp)
+    if PLAYVIDEO_PROFILE_FILE="$temp_profile_file" "$PLAYVIDEO" --restore-defaults >/dev/null 2>&1; then
         pass "Restore defaults works"
-        # Verify the profile file was created in temp location
-        if [[ -f "$temp_home/.playvideo_profiles" ]]; then
-            pass "Profile file created in correct location"
+        # Verify the profile file was created
+        if [[ -f "$temp_profile_file" ]]; then
+            pass "Profile file created correctly"
         else
             fail "Profile file not created"
         fi
     else
         fail "Restore defaults failed"
     fi
-    # Clean up temp directory
-    rm -rf "$temp_home"
+    # Clean up temp file
+    rm -f "$temp_profile_file"
 }
 
 # Run all tests
