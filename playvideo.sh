@@ -115,12 +115,6 @@ EOF
 }
 
 load_profiles() {
-  # Load default profiles first
-  for k in "${!DEFAULT_PROFILES[@]}"; do
-    # We want these variables to be global and accessible
-    eval "${DEFAULT_PROFILES[$k]}"
-  done
-
   # Load user profile overrides if exist
   if [[ -f "$PROFILE_FILE" ]]; then
     # shellcheck source=/dev/null
@@ -140,9 +134,9 @@ save_default_profiles() {
 }
 
 verbose() {
-#  if [[ "$VERBOSE" -eq 1 ]]; then
+  if [[ "$VERBOSE" -eq 1 ]]; then
     echo "[playvideo]: $*" >&2
-#  fi
+  fi
 }
 
 # Parse options
@@ -278,8 +272,8 @@ cleanup() {
 trap cleanup EXIT
 
 # Compose internal commands for video
-video_cmd=""
-audio_cmd=""
+declare -a video_cmd=()
+declare -a audio_cmd=()
 
 case "$FORMAT" in
   sixel)
@@ -372,31 +366,31 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     printf 'echo "  %s"\n' "${video_cmd[@]}"
     echo "${video_cmd[@]}"
   fi
-  if [[ "${#chafa_args[@]}" -gt 0 ]]; then
+  if [[ -v chafa_args && "${#chafa_args[@]}" -gt 0 ]]; then
     echo ""
     echo "echo 'Running chafa command:'"
     printf 'echo "  %s"\n' "${chafa_args[@]}"
     echo "${chafa_args[@]}"
   fi
-  if [[ "${#kitty_args[@]}" -gt 0 ]]; then
+  if [[ -v kitty_args && "${#kitty_args[@]}" -gt 0 ]]; then
     echo ""
     echo "echo 'Running kitty command:'"
     printf 'echo "  %s"\n' "${kitty_args[@]}"
     echo "${kitty_args[@]}"
   fi
-  if [[ "${#jp2a_args[@]}" -gt 0 ]]; then
+  if [[ -v jp2a_args && "${#jp2a_args[@]}" -gt 0 ]]; then
     echo ""
     echo "echo 'Running jp2a command:'"
     printf 'echo "  %s"\n' "${jp2a_args[@]}"
     echo "${jp2a_args[@]}"
   fi
-  if [[ "${#img2txt_args[@]}" -gt 0 ]]; then
+  if [[ -v img2txt_args && "${#img2txt_args[@]}" -gt 0 ]]; then
     echo ""
     echo "echo 'Running img2txt command:'"
     printf 'echo "  %s"\n' "${img2txt_args[@]}"
     echo "${img2txt_args[@]}"
   fi
-  if [[ "${#audio_cmd[@]}" -gt 0 ]]; then
+  if [[ -v audio_cmd && "${#audio_cmd[@]}" -gt 0 ]]; then
     echo ""
     echo "echo 'Running audio playback command:'"
     printf 'echo "  %s"\n' "${audio_cmd[@]}"
