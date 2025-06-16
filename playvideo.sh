@@ -45,40 +45,28 @@ FFMPEG_OUT=""
 declare -A DEFAULT_PROFILES=(
   [sixel]="FFMPEG_FLAGS='-vf scale=320:-1 -pix_fmt rgb24'
     CHAFA_FLAGS='-f sixels --colors=256 --dither=diffusion --fill=all --symbols=all --clear'
-    IMG2TXT_FLAGS='-f ansi --width=80'
-    FFMPEG_OUT='-f gif'
-    FORMAT='gif'  # Default format, this can be changed via script arguments
-
-    DESC='Sixel terminal output (default)'
-
-    # Attempt to run ffmpeg on the input file
-    if ! ffmpeg \$FFMPEG_FLAGS -i \"\$INPUT_FILE\" -f rawvideo -pix_fmt rgb24 pipe:1 2>/dev/null | chafa \$CHAFA_FLAGS; then
-      # If ffmpeg fails, fallback to visual representation
-      echo 'ffmpeg failed, attempting fallback to visual representation...'
-      
-      # Check for other transcoding options (like ASCII or GIF)
-      if [[ \"\$FORMAT\" == \"gif\" ]]; then
-        ffmpeg \$FFMPEG_FLAGS -i \"\$INPUT_FILE\" \$FFMPEG_OUT \"\$OUTPUT_FILE\"
-      elif [[ \"\$FORMAT\" == \"ascii\" ]]; then
-        jp2a --colors --width=80 \"\$INPUT_FILE\"
-      elif [[ \"\$FORMAT\" == \"ansi\" || \"\$FORMAT\" == \"utf8\" || \"\$FORMAT\" == \"caca\" ]]; then
-        img2txt \$IMG2TXT_FLAGS \"\$INPUT_FILE\"
-      else
-        echo \"Unsupported format for fallback: \$FORMAT\"
-      fi
-    fi"
+    DESC='Sixel terminal output (default)'"
   [kitty]="FFMPEG_FLAGS='-vf scale=320:-1 -pix_fmt rgb24'
-    CHAFA_FLAGS='-f sixels --colors=256 --dither=diffusion --fill=all --symbols=all --clear'
+    KITTY_FLAGS='--quiet --print-fps'
+    DESC='Kitty graphics protocol output'"
+  [ascii]="FFMPEG_FLAGS='-vf scale=80:-1'
+    JP2A_FLAGS='--colors --width=80'
+    DESC='ASCII art output via jp2a'"
+  [ansi]="FFMPEG_FLAGS='-vf scale=80:-1'
     IMG2TXT_FLAGS='-f ansi --width=80'
+    DESC='ANSI colored output via img2txt'"
+  [utf8]="FFMPEG_FLAGS='-vf scale=80:-1'
+    IMG2TXT_FLAGS='-f utf8 --width=80'
+    DESC='UTF8 colored output via img2txt'"
+  [caca]="FFMPEG_FLAGS='-vf scale=80:-1'
+    IMG2TXT_FLAGS='-f caca --width=80'
+    DESC='Libcaca output'"
+  [gif]="FFMPEG_FLAGS='-vf scale=320:-1:flags=lanczos'
     FFMPEG_OUT='-f gif'
-    FORMAT='gif'  # Default format, this can be changed via script arguments
-    KITTY_FLAGS='--quiet --print-fps' DESC='Kitty graphics protocol output'"
-  [ascii]="FFMPEG_FLAGS='-vf scale=80:-1' JP2A_FLAGS='--colors --width=80' DESC='ASCII art output via jp2a'"
-  [ansi]="FFMPEG_FLAGS='-vf scale=80:-1' IMG2TXT_FLAGS='-f ansi --width=80' DESC='ANSI colored output via img2txt'"
-  [utf8]="FFMPEG_FLAGS='-vf scale=80:-1' IMG2TXT_FLAGS='-f utf8 --width=80' DESC='UTF8 colored output via img2txt'"
-  [caca]="FFMPEG_FLAGS='-vf scale=80:-1' IMG2TXT_FLAGS='-f caca --width=80' DESC='Libcaca output'"
-  [gif]="FFMPEG_FLAGS='-vf scale=320:-1:flags=lanczos' FFMPEG_OUT='-f gif' DESC='Animated GIF output via ffmpeg'"
-  [mp4]="FFMPEG_FLAGS='-vf scale=640:-1' FFMPEG_OUT='-c:v libx264 -preset fast -crf 23' DESC='MP4 output via ffmpeg'"
+    DESC='Animated GIF output via ffmpeg'"
+  [mp4]="FFMPEG_FLAGS='-vf scale=640:-1'
+    FFMPEG_OUT='-c:v libx264 -preset fast -crf 23'
+    DESC='MP4 output via ffmpeg'"
 )
 
 # Helper functions
@@ -471,12 +459,15 @@ run_video_audio() {
       # Connect video pipeline to chafa
       verbose "Starting sixel video pipeline"
       if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
-        # Run audio asynchronously
-        "${audio_cmd[@]}" < "$INPUT_FILE" >/dev/null 2>&1 &
-        AUDIO_PID=$!
+        # Run audio asynchronously - for stdin, we can't use the same input
+        # so we skip audio in stdin mode for sixel
+        if [[ "$INPUT_FILE" != "-" ]]; then
+          "${audio_cmd[@]}" >/dev/null 2>&1 &
+          AUDIO_PID=$!
+        fi
       fi
       "${video_cmd[@]}" | "${chafa_args[@]}"
-      if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
+      if [[ "$ENABLE_AUDIO" -eq 1 && "$INPUT_FILE" != "-" ]]; then
         wait "$AUDIO_PID"
       fi
       ;;
@@ -487,11 +478,15 @@ run_video_audio() {
           exit 1
         fi
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
-          "${audio_cmd[@]}" < "$INPUT_FILE" >/dev/null 2>&1 &
-          AUDIO_PID=$!
+          # For stdin with kitty, we can't use the same input stream for audio
+          # so we skip audio in stdin mode
+          if [[ "$INPUT_FILE" != "-" ]]; then
+            "${audio_cmd[@]}" >/dev/null 2>&1 &
+            AUDIO_PID=$!
+          fi
         fi
         "${video_cmd[@]}" | "${kitty_args[@]}"
-        if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
+        if [[ "$ENABLE_AUDIO" -eq 1 && "$INPUT_FILE" != "-" ]]; then
           wait "$AUDIO_PID"
         fi
       else
@@ -554,8 +549,8 @@ run_video_audio() {
         VID_PID=$!
         "${audio_cmd[@]}" >/dev/null 2>&1 &
         AUDIO_PID=$!
-        wait $VID_PID
-        wait $AUDIO_PID
+        wait "$VID_PID"
+        wait "$AUDIO_PID"
       else
         "${video_cmd[@]}"
       fi

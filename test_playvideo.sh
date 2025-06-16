@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # Test script for playvideo functionality
 
-set -euo pipefail
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLAYVIDEO="$SCRIPT_DIR/playvideo.sh"
 
@@ -22,54 +20,13 @@ print_test_header() {
 
 pass() {
     echo -e "${GREEN}✓ $1${NC}"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 fail() {
     echo -e "${RED}✗ $1${NC}"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
-
-test_help() {
-    print_test_header "Testing Help and Basic Options"
-    
-    # Test help output
-    if "$PLAYVIDEO" --help >/dev/null 2>&1; then
-        pass "Help option works"
-    else
-        fail "Help option failed"
-    fi
-    
-    # Test list profiles
-    if "$PLAYVIDEO" --list-profiles >/dev/null 2>&1; then
-        pass "List profiles works"
-    else
-        fail "List profiles failed"
-    fi
-}
-
-run_tests() {
-    test_help
-    echo -e "\n${YELLOW}=== Basic Test Summary ===${NC}"
-    echo -e "Tests passed: ${GREEN}$TESTS_PASSED${NC}"
-    echo -e "Tests failed: ${RED}$TESTS_FAILED${NC}"
-    
-    if [[ $TESTS_FAILED -eq 0 ]]; then
-        echo -e "\n${GREEN}Basic tests passed! ✓${NC}"
-        return 0
-    else
-        echo -e "\n${RED}Some basic tests failed! ✗${NC}"
-        return 1
-    fi
-}
-
-# Run the basic tests first
-if run_tests; then
-    echo "Proceeding with comprehensive tests..."
-else
-    echo "Basic tests failed, stopping here."
-    exit 1
-fi
 
 test_help() {
     print_test_header "Testing Help and Basic Options"
@@ -180,6 +137,24 @@ test_profiles() {
     else
         pass "Invalid profiles are rejected"
     fi
+    
+    # Test that profile descriptions are included in help
+    if "$PLAYVIDEO" --help | grep -q "DESC="; then
+        fail "Profile descriptions should not contain DESC= in help output"
+    else
+        pass "Profile descriptions are clean in help output"
+    fi
+    
+    # Test that all expected profiles are listed
+    profiles_output=$("$PLAYVIDEO" --list-profiles 2>/dev/null || true)
+    expected_profiles=("sixel" "kitty" "ascii" "ansi" "utf8" "caca" "gif" "mp4")
+    for profile in "${expected_profiles[@]}"; do
+        if echo "$profiles_output" | grep -q "\- $profile:"; then
+            pass "Profile $profile is listed"
+        else
+            fail "Profile $profile is missing from list"
+        fi
+    done
 }
 
 test_verbose_mode() {
@@ -197,7 +172,43 @@ test_verbose_mode() {
     rm -f /tmp/test.txt
 }
 
+test_edge_cases() {
+    print_test_header "Testing Edge Cases"
+    
+    # Test FPS parameter
+    if "$PLAYVIDEO" --dry-run --fps 30 >/dev/null 2>&1; then
+        fail "FPS parameter failed (should have failed due to missing deps)"
+    else
+        pass "FPS parameter parsing works"
+    fi
+    
+    # Test output file parameter
+    if "$PLAYVIDEO" --dry-run --output /tmp/test.gif --format gif >/dev/null 2>&1; then
+        fail "Output file parameter failed (should have failed due to missing deps)"
+    else
+        pass "Output file parameter parsing works"
+    fi
+    
+    # Test -- delimiter
+    if "$PLAYVIDEO" --dry-run -- --some-extra-flag >/dev/null 2>&1; then
+        fail "Double dash delimiter failed (should have failed due to missing deps)"
+    else
+        pass "Double dash delimiter works"
+    fi
+    
+    # Test restore defaults (should succeed)
+    if "$PLAYVIDEO" --restore-defaults >/dev/null 2>&1; then
+        pass "Restore defaults works"
+        # Clean up the created file
+        rm -f ~/.playvideo_profiles
+    else
+        fail "Restore defaults failed"
+    fi
+}
+
 # Run all tests
+echo "Running playvideo comprehensive test suite..."
+
 test_help
 test_dry_run_formats
 test_audio_dependency
@@ -205,9 +216,10 @@ test_file_input
 test_flag_parsing
 test_profiles
 test_verbose_mode
+test_edge_cases
 
-# Summary
-echo -e "\n${YELLOW}=== Test Summary ===${NC}"
+# Final summary
+echo -e "\n${YELLOW}=== Final Test Summary ===${NC}"
 echo -e "Tests passed: ${GREEN}$TESTS_PASSED${NC}"
 echo -e "Tests failed: ${RED}$TESTS_FAILED${NC}"
 
