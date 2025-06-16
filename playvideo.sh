@@ -11,7 +11,8 @@
 
 set -euo pipefail
 
-readonly SCRIPT_NAME=$(basename "$0")
+SCRIPT_NAME=$(basename "$0")
+readonly SCRIPT_NAME
 
 # Location for user profiles
 PROFILE_FILE="${HOME}/.playvideo_profiles"
@@ -136,6 +137,60 @@ save_default_profiles() {
 verbose() {
   if [[ "$VERBOSE" -eq 1 ]]; then
     echo "[playvideo]: $*" >&2
+  fi
+}
+
+check_dependencies() {
+  local missing_deps=()
+  
+  case "$FORMAT" in
+    sixel)
+      if ! command -v ffmpeg >/dev/null 2>&1; then
+        missing_deps+=("ffmpeg")
+      fi
+      if ! command -v chafa >/dev/null 2>&1; then
+        missing_deps+=("chafa")
+      fi
+      ;;
+    kitty)
+      if [[ "$INPUT_FILE" == "-" ]] && ! command -v ffmpeg >/dev/null 2>&1; then
+        missing_deps+=("ffmpeg")
+      fi
+      if ! command -v kitty >/dev/null 2>&1; then
+        missing_deps+=("kitty")
+      fi
+      ;;
+    ascii)
+      if [[ "$INPUT_FILE" == "-" ]] && ! command -v ffmpeg >/dev/null 2>&1; then
+        missing_deps+=("ffmpeg")
+      fi
+      if ! command -v jp2a >/dev/null 2>&1; then
+        missing_deps+=("jp2a")
+      fi
+      ;;
+    ansi|utf8|caca)
+      if [[ "$INPUT_FILE" == "-" ]] && ! command -v ffmpeg >/dev/null 2>&1; then
+        missing_deps+=("ffmpeg")
+      fi
+      if ! command -v img2txt >/dev/null 2>&1; then
+        missing_deps+=("img2txt")
+      fi
+      ;;
+    gif|mp4)
+      if ! command -v ffmpeg >/dev/null 2>&1; then
+        missing_deps+=("ffmpeg")
+      fi
+      ;;
+  esac
+  
+  if [[ "$ENABLE_AUDIO" -eq 1 ]] && ! command -v ffplay >/dev/null 2>&1; then
+    missing_deps+=("ffplay")
+  fi
+  
+  if [[ ${#missing_deps[@]} -gt 0 ]]; then
+    echo "Error: Missing required dependencies: ${missing_deps[*]}" >&2
+    echo "Please install the missing tools and try again." >&2
+    exit 1
   fi
 }
 
@@ -265,6 +320,9 @@ if [[ "$INPUT_FILE" != "-" && ! -f "$INPUT_FILE" ]]; then
   exit 1
 fi
 
+# Check dependencies for the selected format and options
+check_dependencies
+
 TMPDIR=$(mktemp -d)
 cleanup() {
   rm -rf "$TMPDIR"
@@ -284,19 +342,18 @@ case "$FORMAT" in
       video_cmd=( ffmpeg -loglevel error -i "$INPUT_FILE" -vf "fps=$FPS,${FFMPEG_FLAGS:-scale=320:-1}" -f rawvideo -pix_fmt rgb24 "${VIDEO_EXTRA_FLAGS[@]}" pipe:1 )
     fi
     # chafa command line flags override from profile or default
+    # shellcheck disable=SC2206
     chafa_args=( chafa ${CHAFA_FLAGS:-"-f sixels --colors=256 --dither=diffusion --fill=all --symbols=all --clear"} )
     ;;
   kitty)
     verbose "Building kitty graphics output command"
-    if ! command -v kitty +kitten icat >/dev/null 2>&1; then
-      echo "Error: kitty +kitten icat not found for kitty graphics output" >&2
-      exit 1
-    fi
     if [[ "$INPUT_FILE" == "-" ]]; then
       video_cmd=( ffmpeg -loglevel error -i pipe:0 -vf "fps=$FPS,${FFMPEG_FLAGS:-scale=320:-1}" -f rawvideo -pix_fmt rgb24 "${VIDEO_EXTRA_FLAGS[@]}" pipe:1 )
+      # shellcheck disable=SC2206
       kitty_args=( kitty +kitten icat --clear --stdin ${KITTY_FLAGS:-} )
     else
       video_cmd=()
+      # shellcheck disable=SC2206
       kitty_args=( kitty +kitten icat --clear "$INPUT_FILE" ${KITTY_FLAGS:-} )
     fi
     ;;
@@ -305,8 +362,10 @@ case "$FORMAT" in
     if [[ "$INPUT_FILE" == "-" ]]; then
       TMPPNG="$TMPDIR/frame.png"
       video_cmd=( ffmpeg -loglevel error -i pipe:0 -frames:v 1 -vf "${FFMPEG_FLAGS:-scale=80:-1}" "$TMPPNG" "${VIDEO_EXTRA_FLAGS[@]}" )
-      jp2a_args=( jp2a ${JP2A_FLAGS:-"--colors --width=80"} )
+      # shellcheck disable=SC2206
+      jp2a_args=( jp2a ${JP2A_FLAGS:-"--colors --width=80"} "$TMPPNG" )
     else
+      # shellcheck disable=SC2206
       jp2a_args=( jp2a ${JP2A_FLAGS:-"--colors --width=80"} "$INPUT_FILE" )
       video_cmd=()
     fi
@@ -318,8 +377,10 @@ case "$FORMAT" in
     if [[ "$INPUT_FILE" == "-" ]]; then
       TMPPNG="$TMPDIR/frame.png"
       video_cmd=( ffmpeg -loglevel error -i pipe:0 -frames:v 1 -vf "${FFMPEG_FLAGS:-scale=80:-1}" "$TMPPNG" "${VIDEO_EXTRA_FLAGS[@]}" )
+      # shellcheck disable=SC2206
       img2txt_args=( img2txt $FORMAT_FLAG --width=80 "$TMPPNG" ${IMG2TXT_FLAGS:-} )
     else
+      # shellcheck disable=SC2206
       img2txt_args=( img2txt $FORMAT_FLAG --width=80 "$INPUT_FILE" ${IMG2TXT_FLAGS:-} )
       video_cmd=()
     fi
@@ -416,7 +477,7 @@ run_video_audio() {
       fi
       "${video_cmd[@]}" | "${chafa_args[@]}"
       if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
-        wait $AUDIO_PID
+        wait "$AUDIO_PID"
       fi
       ;;
     kitty)
@@ -431,7 +492,7 @@ run_video_audio() {
         fi
         "${video_cmd[@]}" | "${kitty_args[@]}"
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
-          wait $AUDIO_PID
+          wait "$AUDIO_PID"
         fi
       else
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
@@ -440,7 +501,7 @@ run_video_audio() {
         fi
         "${kitty_args[@]}"
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
-          wait $AUDIO_PID
+          wait "$AUDIO_PID"
         fi
       fi
       ;;
@@ -451,7 +512,7 @@ run_video_audio() {
       fi
       if [[ "$INPUT_FILE" == "-" ]]; then
         "${video_cmd[@]}"
-        "${jp2a_args[@]}" "$TMPDIR/frame.png"
+        "${jp2a_args[@]}"
       else
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
           "${audio_cmd[@]}" >/dev/null 2>&1 &
@@ -459,7 +520,7 @@ run_video_audio() {
         fi
         "${jp2a_args[@]}"
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
-          wait $AUDIO_PID
+          wait "$AUDIO_PID"
         fi
       fi
       ;;
@@ -470,7 +531,7 @@ run_video_audio() {
       fi
       if [[ "$INPUT_FILE" == "-" ]]; then
         "${video_cmd[@]}"
-        "${img2txt_args[@]}" "$TMPDIR/frame.png"
+        "${img2txt_args[@]}"
       else
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
           "${audio_cmd[@]}" >/dev/null 2>&1 &
@@ -478,7 +539,7 @@ run_video_audio() {
         fi
         "${img2txt_args[@]}"
         if [[ "$ENABLE_AUDIO" -eq 1 ]]; then
-          wait $AUDIO_PID
+          wait "$AUDIO_PID"
         fi
       fi
       ;;
